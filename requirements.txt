@@ -1,0 +1,13 @@
+pandas>=2.2
+pyarrow>=18.0
+numpy>=1.26
+matplotlib>=3.8
+seaborn>=0.13
+scikit-learn>=1.5
+statsmodels>=0.14
+plotly>=5.24
+folium>=0.17
+branca>=0.7
+requests>=2.32
+jupyter>=1.0
+ipykernel>=6.29

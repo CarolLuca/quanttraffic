@@ -1,0 +1,16 @@
+signal,state,days_in_group,mean_daily_accidents,lift_vs_baseline_pct,full_years_considered,yearly_sign_stability,robustness_label,passes_discussion_filter
+long_weekend,True,161,3070.2919254658386,10.667531285183832,6,1.0,discussion_ready,True
+full_moon,True,237,2820.6075949367087,1.6677523941064871,6,0.6666666666666666,discussion_ready,True
+moon_illumination_band,Very Dark,512,2790.595703125,0.5859849085942124,6,0.6666666666666666,discussion_ready,True
+dst_transition,False,2489,2787.302531137003,0.46728374829530595,6,1.0,discussion_ready,True
+holiday_window,False,2304,2783.0138888888887,0.3127012324675538,6,0.6666666666666666,discussion_ready,True
+full_moon,False,2280,2769.528947368421,-0.17335847254528375,6,0.6666666666666666,discussion_ready,True
+long_weekend,False,2356,2754.1141765704583,-0.7289781565851505,6,1.0,discussion_ready,True
+holiday_window,True,213,2680.49765258216,-3.3824584019026744,6,0.6666666666666666,discussion_ready,True
+dst_transition,True,28,1621.9285714285713,-41.5381874823935,6,1.0,discussion_ready,True
+moon_illumination_band,Very Bright,518,2815.2335907335905,1.474048410018703,6,0.5,cautionary,False
+moon_illumination_band,Half-lit,495,2806.9757575757576,1.176397883121771,6,0.5,cautionary,False
+half_moon,True,477,2802.9748427672957,1.0321863959135542,6,0.5,cautionary,False
+half_moon,False,2040,2767.6426470588235,-0.2413494661033209,6,0.5,cautionary,False
+moon_illumination_band,Bright,499,2746.2905811623245,-1.010976745191965,6,0.5,cautionary,False
+moon_illumination_band,Low,493,2710.105476673428,-2.3152553871895147,6,0.5,cautionary,False

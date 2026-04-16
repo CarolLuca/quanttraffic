@@ -1,0 +1,52 @@
+state_name,State,population
+Alabama,AL,5108468
+Alaska,AK,733406
+Arizona,AZ,7431344
+Arkansas,AR,3067732
+California,CA,38965193
+Colorado,CO,5877610
+Connecticut,CT,3617176
+Delaware,DE,1031890
+District of Columbia,DC,678972
+Florida,FL,22610726
+Georgia,GA,11029227
+Hawaii,HI,1435138
+Idaho,ID,1964726
+Illinois,IL,12549689
+Indiana,IN,6862199
+Iowa,IA,3207004
+Kansas,KS,2940547
+Kentucky,KY,4526154
+Louisiana,LA,4573749
+Maine,ME,1395722
+Maryland,MD,6180253
+Massachusetts,MA,7001399
+Michigan,MI,10037261
+Minnesota,MN,5737915
+Mississippi,MS,2939690
+Missouri,MO,6196156
+Montana,MT,1132812
+Nebraska,NE,1978379
+Nevada,NV,3194176
+New Hampshire,NH,1402054
+New Jersey,NJ,9290841
+New Mexico,NM,2114371
+New York,NY,19571216
+North Carolina,NC,10835491
+North Dakota,ND,783926
+Ohio,OH,11785935
+Oklahoma,OK,4053824
+Oregon,OR,4233358
+Pennsylvania,PA,12961683
+Rhode Island,RI,1095962
+South Carolina,SC,5373555
+South Dakota,SD,919318
+Tennessee,TN,7126489
+Texas,TX,30503301
+Utah,UT,3417734
+Vermont,VT,647464
+Virginia,VA,8715698
+Washington,WA,7812880
+West Virginia,WV,1770071
+Wisconsin,WI,5910955
+Wyoming,WY,584057
