@@ -1,6 +1,7 @@
 
 import json
 import os
+import hashlib
 from datetime import date, datetime, time, timedelta
 from io import StringIO
 from pathlib import Path
@@ -232,11 +233,32 @@ def generate_severity_image(client, severity_level, sample_description, cache_di
     return None
 
 
-def predict_severity_from_descriptions(client, descriptions, batch_size=25):
+def predict_severity_from_descriptions(
+    client,
+    descriptions,
+    batch_size=25,
+    use_cache=True,
+    force_refresh=False,
+    cache_path="outputs/ai_generated/ai_severity_predictions_cache.json",
+):
     """Use Gemini to predict severity (1-4) from accident descriptions.
 
     Returns a list of predicted severity integers.
     """
+    descriptions = list(descriptions)
+    cache_file = Path(cache_path)
+    cache_key = hashlib.sha256("\n".join(descriptions).encode("utf-8")).hexdigest()
+
+    if use_cache and not force_refresh:
+        try:
+            if cache_file.exists():
+                cached_payload = json.loads(cache_file.read_text(encoding="utf-8"))
+                cached_predictions = cached_payload.get(cache_key)
+                if isinstance(cached_predictions, list) and len(cached_predictions) == len(descriptions):
+                    return [max(1, min(4, int(p))) for p in cached_predictions]
+        except Exception as exc:
+            print(f"Prediction cache read failed: {exc}")
+
     predictions = []
     for i in range(0, len(descriptions), batch_size):
         batch = descriptions[i : i + batch_size]
@@ -274,7 +296,24 @@ def predict_severity_from_descriptions(client, descriptions, batch_size=25):
         except Exception as exc:
             print(f"Severity prediction batch {i // batch_size} failed: {exc}")
             predictions.extend([2] * len(batch))
-    return predictions[:len(descriptions)]
+
+    predictions = predictions[:len(descriptions)]
+
+    if use_cache:
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            if cache_file.exists():
+                payload = json.loads(cache_file.read_text(encoding="utf-8"))
+                if not isinstance(payload, dict):
+                    payload = {}
+            else:
+                payload = {}
+            payload[cache_key] = predictions
+            cache_file.write_text(json.dumps(payload), encoding="utf-8")
+        except Exception as exc:
+            print(f"Prediction cache write failed: {exc}")
+
+    return predictions
 
 
 def build_severity_correlation_analysis(ai_predictions, actual_severities):
