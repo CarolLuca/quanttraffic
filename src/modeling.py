@@ -23,6 +23,7 @@ from sklearn.model_selection import TimeSeriesSplit
 from sklearn.linear_model import LogisticRegression, PoissonRegressor
 
 from data_ingestion import POI_COLUMNS
+from gpu_utils import use_gpu_acceleration
 def _temporal_split_mask(frame, date_column, test_fraction=0.2):
     unique_dates = pd.Series(pd.to_datetime(frame[date_column].dropna().unique())).sort_values()
     cutoff_index = max(int(len(unique_dates) * (1 - test_fraction)) - 1, 0)
@@ -82,7 +83,7 @@ def _sample_natural_holdout_frame(frame: pd.DataFrame, sample_size: int, time_co
     return sampled.sort_values(time_column).copy()
 
 
-def train_severity_models(enriched, sample_size=250000, test_sample_size=150000):
+def train_severity_models(enriched, sample_size=250000, test_sample_size=150000, enable_gpu: bool = True):
     model_df = enriched.copy()
     model_df = model_df.loc[model_df["Severity"].notna() & model_df["Start_Time"].notna()].sort_values("Start_Time").copy()
     train_mask, test_mask = _temporal_split_mask(model_df, "Start_Time")
@@ -207,6 +208,29 @@ def train_severity_models(enriched, sample_size=250000, test_sample_size=150000)
             class_weight="balanced_subsample",
         ),
     }
+
+    if use_gpu_acceleration(enable_gpu):
+        try:
+            import xgboost as xgb  # type: ignore
+
+            positive = max(int(y_train.sum()), 1)
+            negative = max(int((1 - y_train).sum()), 1)
+            candidate_models["XGBoost (GPU)"] = xgb.XGBClassifier(
+                n_estimators=450,
+                max_depth=8,
+                learning_rate=0.05,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                reg_lambda=1.0,
+                objective="binary:logistic",
+                eval_metric="logloss",
+                scale_pos_weight=float(negative / positive),
+                tree_method="hist",
+                device="cuda",
+                random_state=42,
+            )
+        except Exception:
+            pass
 
     results = []
     metric_rows = []
@@ -415,7 +439,7 @@ def _build_lagged_features(
     return lagged
 
 
-def train_count_forecasters(panel, frequency: str = "daily", baseline_lag: int | None = None):
+def train_count_forecasters(panel, frequency: str = "daily", baseline_lag: int | None = None, enable_gpu: bool = True):
     scoped = panel.sort_values("local_date").copy()
     if frequency == "monthly":
         lags = (1, 2, 3, 6, 12)
@@ -471,6 +495,34 @@ def train_count_forecasters(panel, frequency: str = "daily", baseline_lag: int |
             ]
         ),
     }
+
+    if use_gpu_acceleration(enable_gpu):
+        try:
+            import xgboost as xgb  # type: ignore
+
+            models["XGBoost Regressor (GPU)"] = Pipeline(
+                [
+                    ("preprocessor", preprocessor),
+                    (
+                        "model",
+                        xgb.XGBRegressor(
+                            n_estimators=500,
+                            max_depth=8,
+                            learning_rate=0.05,
+                            subsample=0.85,
+                            colsample_bytree=0.85,
+                            reg_lambda=1.0,
+                            objective="count:poisson",
+                            eval_metric="poisson-nloglik",
+                            tree_method="hist",
+                            device="cuda",
+                            random_state=42,
+                        ),
+                    ),
+                ]
+            )
+        except Exception:
+            pass
 
     results = []
     metric_rows = []

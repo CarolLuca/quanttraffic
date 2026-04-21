@@ -18,6 +18,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import TruncatedSVD
 
+from gpu_utils import gpu_status_note, use_gpu_acceleration
+
 try:
     import h3  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -38,6 +40,7 @@ class CountArchitectureConfig:
     temporal_splits: int = 3
     anomaly_contamination: float = 0.01
     neighbor_k: int = 2
+    enable_gpu: bool = True
 
 
 @dataclass
@@ -604,21 +607,51 @@ def _clean_features(frame: pd.DataFrame, features: Sequence[str]) -> pd.DataFram
     return cleaned.replace([np.inf, -np.inf], np.nan)
 
 
-def _fit_branch_model(name: str, grid: pd.DataFrame, feature_names: Sequence[str], train_mask: pd.Series, random_state: int):
+def _fit_branch_model(
+    name: str,
+    grid: pd.DataFrame,
+    feature_names: Sequence[str],
+    train_mask: pd.Series,
+    random_state: int,
+    enable_gpu: bool = True,
+):
     x_train = _clean_features(grid.loc[train_mask], feature_names).fillna(0)
     y_train = grid.loc[train_mask, "target_adj"].astype(float)
 
-    if name == "spatial":
-        model = RandomForestRegressor(n_estimators=250, min_samples_leaf=4, n_jobs=-1, random_state=random_state)
+    if use_gpu_acceleration(enable_gpu):
+        try:
+            import xgboost as xgb  # type: ignore
+
+            model = xgb.XGBRegressor(
+                n_estimators=450 if name == "temporal" else 550,
+                max_depth=8 if name == "temporal" else 10,
+                learning_rate=0.05,
+                subsample=0.85,
+                colsample_bytree=0.85,
+                reg_lambda=1.0,
+                objective="count:poisson",
+                eval_metric="poisson-nloglik",
+                tree_method="hist",
+                device="cuda",
+                random_state=random_state,
+            )
+        except Exception:
+            model = None
     else:
-        model = HistGradientBoostingRegressor(
-            loss="poisson",
-            learning_rate=0.05,
-            max_depth=8 if name == "temporal" else 10,
-            max_iter=250 if name == "temporal" else 300,
-            min_samples_leaf=20,
-            random_state=random_state,
-        )
+        model = None
+
+    if model is None:
+        if name == "spatial":
+            model = RandomForestRegressor(n_estimators=250, min_samples_leaf=4, n_jobs=-1, random_state=random_state)
+        else:
+            model = HistGradientBoostingRegressor(
+                loss="poisson",
+                learning_rate=0.05,
+                max_depth=8 if name == "temporal" else 10,
+                max_iter=250 if name == "temporal" else 300,
+                min_samples_leaf=20,
+                random_state=random_state,
+            )
 
     model.fit(x_train, y_train)
     return model
@@ -706,7 +739,7 @@ def train_spatiotemporal_count_ensemble(
         fold_train_mask = grid["time_idx"].isin(train_times)
         fold_val_mask = grid["time_idx"].isin(val_times)
         for branch_name, features in feature_sets.items():
-            model = _fit_branch_model(branch_name, grid, features, fold_train_mask, config.random_state)
+            model = _fit_branch_model(branch_name, grid, features, fold_train_mask, config.random_state, config.enable_gpu)
             branch_oof[branch_name][fold_val_mask.to_numpy()] = _predict_branch(model, grid.loc[fold_val_mask], features)
 
     oof_rows = []
@@ -730,7 +763,7 @@ def train_spatiotemporal_count_ensemble(
     meta_model.fit(x_meta.loc[meta_valid], grid.loc[meta_valid, "target_adj"])
 
     final_branch_models = {
-        name: _fit_branch_model(name, grid, features, train_mask | meta_mask, config.random_state)
+        name: _fit_branch_model(name, grid, features, train_mask | meta_mask, config.random_state, config.enable_gpu)
         for name, features in feature_sets.items()
     }
 
@@ -772,7 +805,7 @@ def train_spatiotemporal_count_ensemble(
 
     existing_daily_forecast = None
     if daily_context is not None and not daily_context.empty:
-        existing_metrics, existing_results = train_count_forecasters(daily_context)
+        existing_metrics, existing_results = train_count_forecasters(daily_context, enable_gpu=config.enable_gpu)
         best_existing = existing_metrics.sort_values("rmse").iloc[0].to_dict()
         existing_daily_forecast = existing_metrics.copy()
         comparison_rows = [
@@ -797,6 +830,7 @@ def train_spatiotemporal_count_ensemble(
         f"Active cells retained: {grid['spatial_cell'].nunique()}",
         f"Analysis window days: {config.analysis_window_days}",
         f"H3 available: {h3 is not None}",
+        f"GPU acceleration status: {gpu_status_note(config.enable_gpu)}",
         "The requested TFT/ST-GNN/LightGBM stack is represented here with current-repo equivalents that fit the installed dependency set.",
         "If h3 is installed later, the same code will switch from grid bins to H3 cells automatically.",
     ]
