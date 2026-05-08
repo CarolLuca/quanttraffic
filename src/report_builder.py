@@ -41,6 +41,68 @@ FORECAST_TAKEAWAYS = pd.DataFrame(
     ]
 )
 
+COUNT_LIGHT_BRANCH_METRICS = pd.DataFrame(
+    [
+        {"run": "Lightweight", "branch": "temporal", "mae": 0.513431, "rmse": 1.120826, "smape": 1.399302},
+        {"run": "Lightweight", "branch": "spatial", "mae": 0.255196, "rmse": 0.718944, "smape": 1.299766},
+        {"run": "Lightweight", "branch": "tabular", "mae": 0.212601, "rmse": 0.620374, "smape": 1.280183},
+    ]
+)
+
+COUNT_FULL_BRANCH_METRICS = pd.DataFrame(
+    [
+        {"run": "Complete", "branch": "temporal", "mae": 0.193805, "rmse": 0.624972, "smape": 1.678183},
+        {"run": "Complete", "branch": "spatial", "mae": 0.126023, "rmse": 0.476665, "smape": 1.637849},
+        {"run": "Complete", "branch": "tabular", "mae": 0.105850, "rmse": 0.415689, "smape": 1.627504},
+    ]
+)
+
+COUNT_LIGHT_FINAL_METRICS = pd.DataFrame(
+    [
+        {"run": "Lightweight", "model": "stacked_ensemble", "mae": 0.130361, "rmse": 0.497496, "smape": 0.098281},
+        {"run": "Lightweight", "model": "stacked_raw", "mae": 0.127972, "rmse": 0.498443, "smape": 0.097137},
+        {"run": "Lightweight", "model": "tabular_branch", "mae": 0.133404, "rmse": 0.514287, "smape": 1.539148},
+        {"run": "Lightweight", "model": "spatial_branch", "mae": 0.144690, "rmse": 0.569664, "smape": 1.545646},
+        {"run": "Lightweight", "model": "temporal_branch", "mae": 0.319358, "rmse": 0.913999, "smape": 1.612488},
+    ]
+)
+
+COUNT_FULL_FINAL_METRICS = pd.DataFrame(
+    [
+        {"run": "Complete", "model": "stacked_ensemble", "mae": 0.068303, "rmse": 0.298532, "smape": 0.064085},
+        {"run": "Complete", "model": "stacked_raw", "mae": 0.066331, "rmse": 0.299215, "smape": 0.062053},
+        {"run": "Complete", "model": "tabular_branch", "mae": 0.067296, "rmse": 0.304330, "smape": 1.761007},
+        {"run": "Complete", "model": "spatial_branch", "mae": 0.077981, "rmse": 0.348900, "smape": 1.766629},
+        {"run": "Complete", "model": "temporal_branch", "mae": 0.117310, "rmse": 0.471686, "smape": 1.792586},
+    ]
+)
+
+COUNT_FULL_DAILY_COMPARISON = pd.DataFrame(
+    [
+        {"model": "spatiotemporal_daily_aggregate", "mae": 84.221426, "rmse": 146.866834, "smape": 0.135994},
+        {"model": "Random Forest Regressor", "mae": 707.548660, "rmse": 856.313427, "smape": 0.502726},
+    ]
+)
+
+COUNT_FEATURE_CATALOG = pd.DataFrame(
+    [
+        {"family": "temporal", "features": 32},
+        {"family": "spatial", "features": 12},
+        {"family": "tabular", "features": 48},
+        {"family": "text_topics", "features": 6},
+        {"family": "neighbors", "features": 2},
+        {"family": "anomaly_filter", "features": 6},
+        {"family": "existing_daily_forecaster", "features": 1},
+    ]
+)
+
+COUNT_COMPLEXITY_NOTES = [
+    "Lightweight run: 30-day analysis window, 20 active cells, 2 temporal splits, H3 unavailable.",
+    "Complete run: 180-day analysis window, 140 active cells, 3 temporal splits, H3 unavailable.",
+    "The architecture is GPU-ready, but it falls back to CPU-safe estimators when CUDA paths are not available.",
+    "If h3 is installed later, the same pipeline automatically switches from grid bins to H3 cells.",
+]
+
 SEVERITY_TAKEAWAYS = [
     "The best model remains XGBoost (GPU) with PR-AUC 0.717 on a holdout severe-share prevalence of 8.3%.",
     "Random Forest stays close behind, while Logistic Regression lags on ranking quality and calibration.",
@@ -446,6 +508,125 @@ def build_forecast_chart(forecast_takeaways: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def build_count_branch_chart(light_branches: pd.DataFrame, full_branches: pd.DataFrame) -> go.Figure:
+    frame = pd.concat([light_branches, full_branches], ignore_index=True)
+    fig = px.bar(
+        frame,
+        x="branch",
+        y="rmse",
+        color="run",
+        barmode="group",
+        title="Accident-Count Branch RMSE by Architecture Depth",
+        labels={"branch": "Branch", "rmse": "RMSE"},
+        color_discrete_sequence=["#8ecae6", "#fb8500"],
+    )
+    fig.update_layout(template="plotly_white", height=420, margin=dict(l=30, r=30, t=60, b=30), legend_title_text="Run")
+    return fig
+
+
+def build_count_final_chart(light_final: pd.DataFrame, full_final: pd.DataFrame) -> go.Figure:
+    frame = pd.concat([light_final, full_final], ignore_index=True)
+    order = ["stacked_ensemble", "stacked_raw", "tabular_branch", "spatial_branch", "temporal_branch"]
+    frame["model"] = pd.Categorical(frame["model"], categories=order, ordered=True)
+    frame = frame.sort_values(["model", "run"])
+    fig = px.bar(
+        frame,
+        x="model",
+        y="rmse",
+        color="run",
+        barmode="group",
+        title="Final Accident-Count Ensemble Comparison",
+        labels={"model": "Model", "rmse": "RMSE"},
+        color_discrete_sequence=["#8ecae6", "#fb8500"],
+    )
+    fig.update_layout(template="plotly_white", height=440, margin=dict(l=30, r=30, t=60, b=30), legend_title_text="Run")
+    return fig
+
+
+def build_count_daily_chart(daily_comparison: pd.DataFrame) -> go.Figure:
+    frame = daily_comparison.sort_values("rmse", ascending=True).copy()
+    fig = px.bar(
+        frame,
+        x="rmse",
+        y="model",
+        orientation="h",
+        color="rmse",
+        color_continuous_scale="Blues",
+        title="Complete Spatio-Temporal Model vs Existing Daily Forecaster",
+        labels={"rmse": "RMSE", "model": "Model"},
+    )
+    fig.update_layout(template="plotly_white", height=420, margin=dict(l=30, r=30, t=60, b=30), coloraxis_showscale=False)
+    fig.update_yaxes(categoryorder="total ascending")
+    return fig
+
+
+def build_count_feature_chart(feature_catalog: pd.DataFrame) -> go.Figure:
+    frame = feature_catalog.copy().sort_values("features", ascending=True)
+    fig = px.bar(
+        frame,
+        x="features",
+        y="family",
+        orientation="h",
+        color="family",
+        title="Feature Families in the Count Architecture",
+        labels={"features": "Feature count", "family": "Family"},
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig.update_layout(template="plotly_white", height=420, margin=dict(l=30, r=30, t=60, b=30), showlegend=False)
+    return fig
+
+
+def render_section_block(title: str, summary: str, cards: Iterable[tuple[str, str]], figures: Iterable[tuple[str, go.Figure]], tables: Iterable[tuple[str, pd.DataFrame]], narrative: Iterable[str]) -> str:
+    card_blocks = []
+    for label, value in cards:
+        card_blocks.append(
+            f"""
+            <div class=\"metric-card\">
+              <div class=\"metric-label\">{html.escape(label)}</div>
+              <div class=\"metric-value\">{html.escape(value)}</div>
+            </div>
+            """
+        )
+
+    figure_blocks = []
+    for fig_title, fig in figures:
+        figure_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"responsive": True, "displayModeBar": True})
+        figure_blocks.append(
+            f"""
+            <section class=\"panel\">
+              <h3 style=\"margin:0 0 10px; font-size:1rem; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;\">{html.escape(fig_title)}</h3>
+              {figure_html}
+            </section>
+            """
+        )
+
+    table_blocks = []
+    for table_title, table in tables:
+        table_html = table.to_html(index=False, classes="data-table", border=0, escape=False)
+        table_blocks.append(
+            f"""
+            <section class=\"panel\">
+              <h3 style=\"margin:0 0 10px; font-size:1rem; color:var(--accent); text-transform:uppercase; letter-spacing:0.08em;\">{html.escape(table_title)}</h3>
+              <div class=\"table-wrap\">{table_html}</div>
+            </section>
+            """
+        )
+
+    narrative_html = "".join(f"<li>{html.escape(item)}</li>" for item in narrative)
+    return f"""
+    <section class=\"panel\">
+      <h2>{html.escape(title)}</h2>
+      <div class=\"subtitle\" style=\"margin-bottom:12px;\">{html.escape(summary)}</div>
+      <div class=\"cards\">{''.join(card_blocks)}</div>
+      <section class=\"narrative\" style=\"margin-top:16px;\">
+        <ul>{narrative_html}</ul>
+      </section>
+      {''.join(figure_blocks)}
+      {''.join(table_blocks)}
+    </section>
+    """
+
+
 def build_ai_prediction_chart(distribution: pd.DataFrame) -> go.Figure:
     fig = px.bar(
         distribution,
@@ -462,7 +643,7 @@ def build_ai_prediction_chart(distribution: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def render_report(title: str, subtitle: str, cards: Iterable[tuple[str, str]], figures: Iterable[tuple[str, go.Figure]], tables: Iterable[tuple[str, pd.DataFrame]], narrative: Iterable[str]) -> str:
+def render_report(title: str, subtitle: str, cards: Iterable[tuple[str, str]], figures: Iterable[tuple[str, go.Figure]], tables: Iterable[tuple[str, pd.DataFrame]], narrative: Iterable[str], sections: Iterable[dict] | None = None) -> str:
     figure_blocks = []
     for fig_title, fig in figures:
         figure_html = fig.to_html(full_html=False, include_plotlyjs=False, config={"responsive": True, "displayModeBar": True})
@@ -499,6 +680,19 @@ def render_report(title: str, subtitle: str, cards: Iterable[tuple[str, str]], f
         )
 
     narrative_html = "".join(f"<li>{html.escape(item)}</li>" for item in narrative)
+    section_html = ""
+    if sections:
+        section_html = "".join(
+            render_section_block(
+                section.get("title", ""),
+                section.get("summary", ""),
+                section.get("cards", []),
+                section.get("figures", []),
+                section.get("tables", []),
+                section.get("narrative", []),
+            )
+            for section in sections
+        )
     html_doc = f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -582,6 +776,7 @@ def render_report(title: str, subtitle: str, cards: Iterable[tuple[str, str]], f
       <h2 style=\"margin:0 0 10px; font-size:1.15rem;\">What stands out</h2>
       <ul>{narrative_html}</ul>
     </section>
+        {section_html}
     {''.join(figure_blocks)}
     {''.join(table_blocks)}
   </main>
@@ -676,56 +871,101 @@ def build_predictions_report() -> str:
     severe_tail_share = float(ai_distribution.loc[ai_distribution["predicted_severity"].isin([3, 4]), "share"].sum())
     mode_row = ai_distribution.sort_values(["count", "predicted_severity"], ascending=[False, True]).iloc[0]
 
-    cards = [
-        ("Best severity model", f"XGBoost (GPU) / PR-AUC {float(severity_metrics.loc[severity_metrics['model'] == 'XGBoost (GPU)', 'pr_auc'].iloc[0]):.3f}"),
-        ("Holdout prevalence", f"{float(severity_metrics['test_prevalence'].iloc[0]) * 100:.1f}% severe"),
-        ("Top ablation bundle", str(SEVERITY_BUNDLE_ABLATION.iloc[0]["feature_bundle"])),
-        ("Best daily forecast", f"Los Angeles / {FORECAST_TAKEAWAYS.loc[FORECAST_TAKEAWAYS['scope'] == 'Los Angeles', 'model'].iloc[0]}"),
-        ("Final accident predictions", f"{ai_total} cached predictions"),
-        ("Most common predicted class", f"{int(mode_row['predicted_severity'])} with {mode_row['share']:.1%} share"),
-    ]
-
-    narrative = [
-        "The severity task is the clearest win in the repo: XGBoost (GPU) leads the holdout comparison, with Random Forest close behind and Logistic Regression clearly weaker.",
-        "The feature-bundle ablation shows that the richest structured bundle is the strongest overall configuration, so the predictive lift comes from combining calendar, road/context, and text-derived fields rather than a single feature family.",
-        "The daily count forecasts are consistently better than a seasonal naive baseline across the highlighted scopes, with Los Angeles posting the largest improvement in the notebook's takeaway text.",
-        f"The cached final accident predictions contain {ai_total} predicted severity labels, and the distribution is concentrated in classes 2-4 rather than the minor class.",
-        f"The highest-severity tail (classes 3 and 4) accounts for {severe_tail_share:.1%} of the cached accident predictions, so the model is not collapsing everything into the low-risk bucket.",
-    ]
-
-    figures = [
-        ("Severity Model Comparison", build_model_metrics_chart(severity_metrics)),
-        ("Feature-Bundle Ablation", build_bundle_ablation_chart(SEVERITY_BUNDLE_ABLATION)),
-        ("Final Accident Predictions", build_ai_prediction_chart(ai_distribution)),
-        ("Daily Forecast Improvements", build_forecast_chart(FORECAST_TAKEAWAYS)),
-    ]
-
-    forecast_table = FORECAST_TAKEAWAYS.copy().sort_values("rmse_improvement_pct", ascending=False)
-    tables = [
-        ("Severity Metrics", severity_metrics.reset_index(drop=True)),
-        ("Feature-Bundle Ablation", SEVERITY_BUNDLE_ABLATION.reset_index(drop=True)),
-        ("Final Accident Prediction Distribution", ai_distribution.reset_index(drop=True)),
-        ("Daily Forecast Improvements", forecast_table.reset_index(drop=True)),
-    ]
-
     severity_best = severity_metrics.sort_values("pr_auc", ascending=False).iloc[0]
     bundle_best = SEVERITY_BUNDLE_ABLATION.iloc[0]
-    narrative.extend(
-        [
-            f"The best model remains {severity_best['model']} with PR-AUC {float(severity_best['pr_auc']):.3f}, ROC-AUC {float(severity_best['roc_auc']):.3f}, and recall {float(severity_best['recall']):.3f}.",
-            f"Among the bundle ablations, {bundle_best['feature_bundle']} leads on PR-AUC at {float(bundle_best['pr_auc']):.3f}.",
-            f"The final prediction mix is led by severity class {int(mode_row['predicted_severity'])}, which accounts for {mode_row['share']:.1%} of the cached predictions.",
-            f"The strongest daily count improvement in the notebook takeaway is Los Angeles at {float(FORECAST_TAKEAWAYS.loc[FORECAST_TAKEAWAYS['scope'] == 'Los Angeles', 'rmse_improvement_pct'].iloc[0]):.1f}% RMSE improvement versus seasonal naive.",
-        ]
-    )
+    count_light_best = COUNT_LIGHT_FINAL_METRICS.sort_values("rmse").iloc[0]
+    count_full_best = COUNT_FULL_FINAL_METRICS.sort_values("rmse").iloc[0]
+    count_rmse_gain = ((float(count_light_best["rmse"]) - float(count_full_best["rmse"])) / float(count_light_best["rmse"])) * 100
+    daily_best_rmse = float(COUNT_FULL_DAILY_COMPARISON.sort_values("rmse").iloc[0]["rmse"])
+    daily_baseline_rmse = float(COUNT_FULL_DAILY_COMPARISON.sort_values("rmse", ascending=False).iloc[0]["rmse"])
+    daily_gain = ((daily_baseline_rmse - daily_best_rmse) / daily_baseline_rmse) * 100
+
+    severity_narrative = [
+        "The severity task is the clearest win in the repo: XGBoost (GPU) leads the holdout comparison, with Random Forest close behind and Logistic Regression clearly weaker.",
+        "The feature-bundle ablation shows that the richest structured bundle is the strongest overall configuration, so the predictive lift comes from combining calendar, road/context, and text-derived fields rather than a single feature family.",
+        f"The best model remains {severity_best['model']} with PR-AUC {float(severity_best['pr_auc']):.3f}, ROC-AUC {float(severity_best['roc_auc']):.3f}, and recall {float(severity_best['recall']):.3f}.",
+        f"The final prediction mix is led by severity class {int(mode_row['predicted_severity'])}, which accounts for {mode_row['share']:.1%} of the cached predictions.",
+        f"The highest-severity tail (classes 3 and 4) accounts for {severe_tail_share:.1%} of the cached accident predictions, so the model is not collapsing everything into the low-risk bucket.",
+        "Severity is the first task; the count section below switches to forecasting and shows how the deeper spatiotemporal stack behaves.",
+    ]
+
+    count_narrative = [
+        f"The lightweight spatiotemporal run already beats its internal branches, with the tabular branch leading and the stacked ensemble reaching RMSE {float(count_light_best['rmse']):.3f}.",
+        f"The complete architecture tightens the ensemble to RMSE {float(count_full_best['rmse']):.3f}, a {count_rmse_gain:.1f}% reduction versus the lightweight run.",
+        "The tabular branch is still the strongest single branch in both runs, which says the structured lag/context features matter more than temporal-only smoothing.",
+        f"The complete daily comparison shows the spatiotemporal model at RMSE {daily_best_rmse:.3f} versus {daily_baseline_rmse:.3f} for the slower baseline, an {daily_gain:.1f}% reduction.",
+        "The complex architecture is intentionally layered: temporal, spatial, tabular, text-topic, neighbor, and anomaly-filter features all contribute to the final stack.",
+        "H3 was unavailable in this environment, so the notebook used grid cells; the pipeline is still ready to switch to hexagonal cells if that dependency is added later.",
+    ]
+
+    severity_cards = [
+        ("Best severity model", f"XGBoost (GPU) / PR-AUC {float(severity_best['pr_auc']):.3f}"),
+        ("Holdout prevalence", f"{float(severity_metrics['test_prevalence'].iloc[0]) * 100:.1f}% severe"),
+        ("Top ablation bundle", str(bundle_best["feature_bundle"])),
+        ("Final accident predictions", f"{ai_total} cached predictions"),
+    ]
+
+    count_cards = [
+        ("Best lightweight RMSE", f"{float(count_light_best['rmse']):.3f}"),
+        ("Best complete RMSE", f"{float(count_full_best['rmse']):.3f}"),
+        ("Complexity gain", f"{count_rmse_gain:.1f}% lower RMSE than the lightweight run"),
+        ("Feature families", f"{len(COUNT_FEATURE_CATALOG)} families"),
+        ("GPU and H3 status", "GPU validated; H3 unavailable in this run"),
+    ]
 
     return render_report(
         "Prediction Report: Severity and Forecast Models",
-        "Interactive model summary built from the notebook's saved outputs and report tables, including a feature-bundle view of what improves performance.",
-        cards,
-        figures,
-        tables,
-        narrative,
+        "Interactive model summary built from the notebook's saved outputs and report tables, with severity first and a separate accident-count forecasting section after it.",
+        [
+            ("Best severity model", f"XGBoost (GPU) / PR-AUC {float(severity_best['pr_auc']):.3f}"),
+            ("Best count model", f"Complete stacked ensemble / RMSE {float(count_full_best['rmse']):.3f}"),
+            ("Final accident predictions", f"{ai_total} cached labels"),
+            ("Count feature families", f"{len(COUNT_FEATURE_CATALOG)}"),
+            ("Most common predicted class", f"{int(mode_row['predicted_severity'])} with {mode_row['share']:.1%} share"),
+        ],
+        [],
+        [],
+        [],
+        sections=[
+            {
+                "title": "Task 1 - Severity Classification",
+                "summary": "This section summarizes the binary accident-severity model and the feature bundles that improve ranking quality.",
+                "cards": severity_cards,
+                "narrative": severity_narrative,
+                "figures": [
+                    ("Severity Model Comparison", build_model_metrics_chart(severity_metrics)),
+                    ("Feature-Bundle Ablation", build_bundle_ablation_chart(SEVERITY_BUNDLE_ABLATION)),
+                    ("Final Accident Predictions", build_ai_prediction_chart(ai_distribution)),
+                    ("Daily Forecast Improvements", build_forecast_chart(FORECAST_TAKEAWAYS)),
+                ],
+                "tables": [
+                    ("Severity Metrics", severity_metrics.reset_index(drop=True)),
+                    ("Feature-Bundle Ablation", SEVERITY_BUNDLE_ABLATION.reset_index(drop=True)),
+                    ("Final Accident Prediction Distribution", ai_distribution.reset_index(drop=True)),
+                    ("Daily Forecast Improvements", FORECAST_TAKEAWAYS.copy().sort_values("rmse_improvement_pct", ascending=False).reset_index(drop=True)),
+                ],
+            },
+            {
+                "title": "Task 2 - Accident Count Forecasting",
+                "summary": "This section moves from classification to forecasting and highlights the deeper spatiotemporal architecture.",
+                "cards": count_cards,
+                "narrative": count_narrative,
+                "figures": [
+                    ("Branch RMSE by Run", build_count_branch_chart(COUNT_LIGHT_BRANCH_METRICS, COUNT_FULL_BRANCH_METRICS)),
+                    ("Final Ensemble RMSE", build_count_final_chart(COUNT_LIGHT_FINAL_METRICS, COUNT_FULL_FINAL_METRICS)),
+                    ("Complete Daily Benchmark", build_count_daily_chart(COUNT_FULL_DAILY_COMPARISON)),
+                    ("Architecture Feature Families", build_count_feature_chart(COUNT_FEATURE_CATALOG)),
+                ],
+                "tables": [
+                    ("Lightweight Branch Metrics", COUNT_LIGHT_BRANCH_METRICS.reset_index(drop=True)),
+                    ("Complete Branch Metrics", COUNT_FULL_BRANCH_METRICS.reset_index(drop=True)),
+                    ("Lightweight Final Metrics", COUNT_LIGHT_FINAL_METRICS.reset_index(drop=True)),
+                    ("Complete Final Metrics", COUNT_FULL_FINAL_METRICS.reset_index(drop=True)),
+                    ("Complete Daily Comparison", COUNT_FULL_DAILY_COMPARISON.reset_index(drop=True)),
+                    ("Architecture Feature Catalog", COUNT_FEATURE_CATALOG.reset_index(drop=True)),
+                ],
+            },
+        ],
     )
 
 
