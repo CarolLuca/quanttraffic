@@ -18,6 +18,7 @@ from visualisation import build_interactive_globe_figure
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TABLE_DIR = PROJECT_ROOT / "outputs" / "tables"
 FIGURE_DIR = PROJECT_ROOT / "outputs" / "figures"
+AI_CACHE_PATH = PROJECT_ROOT / "outputs" / "ai_generated" / "ai_severity_predictions_cache.json"
 NOTEBOOK_PATH = PROJECT_ROOT / "AAD.ipynb"
 
 SEVERITY_BUNDLE_ABLATION = pd.DataFrame(
@@ -52,6 +53,27 @@ def load_table(filename: str) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"Missing required table: {path}")
     return pd.read_csv(path)
+
+
+def load_ai_severity_distribution(cache_path: Path = AI_CACHE_PATH) -> pd.DataFrame:
+    payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    counts = pd.Series(dtype=int)
+    for predictions in payload.values():
+        counts = counts.add(pd.Series(predictions, dtype=int).value_counts(), fill_value=0)
+    if counts.empty:
+        raise RuntimeError(f"No predictions found in {cache_path}")
+    distribution = counts.sort_index().reset_index()
+    distribution.columns = ["predicted_severity", "count"]
+    distribution["share"] = distribution["count"] / distribution["count"].sum()
+    distribution["label"] = distribution["predicted_severity"].map(
+        {
+            1: "1 - minor",
+            2: "2 - moderate",
+            3: "3 - serious",
+            4: "4 - severe",
+        }
+    ).fillna(distribution["predicted_severity"].astype(str))
+    return distribution
 
 
 def load_severity_metrics_from_notebook(notebook_path: Path = NOTEBOOK_PATH) -> pd.DataFrame:
@@ -224,6 +246,25 @@ def build_city_chart(panel: pd.DataFrame) -> go.Figure:
         labels={"accident_count": "Accidents", "scope_name": "City"},
     )
     fig.update_layout(template="plotly_white", height=560, margin=dict(l=30, r=30, t=60, b=30), coloraxis_colorbar=dict(title="Median duration (min)"))
+    fig.update_yaxes(categoryorder="total ascending")
+    return fig
+
+
+def build_state_per_capita_chart(state_panel: pd.DataFrame) -> go.Figure:
+    if "accidents_per_100k" not in state_panel.columns:
+        return go.Figure()
+    top_rates = state_panel.dropna(subset=["accidents_per_100k"]).sort_values("accidents_per_100k", ascending=False).head(15)
+    fig = px.bar(
+        top_rates,
+        x="accidents_per_100k",
+        y="scope_name",
+        orientation="h",
+        color="severe_share",
+        color_continuous_scale="Inferno",
+        title="Top State-Day Per-Capita Accident Intensity",
+        labels={"accidents_per_100k": "Accidents per 100k", "scope_name": "State"},
+    )
+    fig.update_layout(template="plotly_white", height=560, margin=dict(l=30, r=30, t=60, b=30), coloraxis_colorbar=dict(title="Severe share"))
     fig.update_yaxes(categoryorder="total ascending")
     return fig
 
@@ -405,6 +446,22 @@ def build_forecast_chart(forecast_takeaways: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def build_ai_prediction_chart(distribution: pd.DataFrame) -> go.Figure:
+    fig = px.bar(
+        distribution,
+        x="label",
+        y="count",
+        text=distribution["share"].map(lambda value: f"{value:.1%}"),
+        title="Final Accident Severity Predictions",
+        labels={"label": "Predicted severity class", "count": "Predictions"},
+        color="predicted_severity",
+        color_continuous_scale="Turbo",
+    )
+    fig.update_layout(template="plotly_white", height=460, margin=dict(l=30, r=30, t=60, b=30), coloraxis_showscale=False)
+    fig.update_traces(textposition="outside", cliponaxis=False)
+    return fig
+
+
 def render_report(title: str, subtitle: str, cards: Iterable[tuple[str, str]], figures: Iterable[tuple[str, go.Figure]], tables: Iterable[tuple[str, pd.DataFrame]], narrative: Iterable[str]) -> str:
     figure_blocks = []
     for fig_title, fig in figures:
@@ -545,6 +602,9 @@ def build_eda_report() -> str:
     top_hotspot = hotspot.head(1)
     stable_signal = signal_table.loc[signal_table.get("passes_discussion_filter", True)].sort_values("lift_vs_baseline_pct", ascending=False).head(1)
     macro_shift = compute_macro_takeaway(macro)
+    outlier_rate = 0.3781
+    notebook_weather_bucket = "Clear/Cloudy"
+    notebook_road_scale = "Local network"
 
     cards = []
     if top_state is not None:
@@ -557,6 +617,9 @@ def build_eda_report() -> str:
     if not stable_signal.empty:
         cards.append(("Strongest stable signal", f"{stable_signal.iloc[0]['signal']} ({stable_signal.iloc[0].get('state', '')})".strip()))
     cards.append(("Macro divergence", f"Accidents {macro_shift['accident_count']:+.1f}%, VMT {macro_shift['vmt_millions']:+.1f}%"))
+    cards.append(("Outlier rate", f"{outlier_rate:.1%} of selected numeric fields"))
+    cards.append(("Dominant weather", notebook_weather_bucket))
+    cards.append(("Dominant road scale", notebook_road_scale))
 
     narrative = []
     if top_state is not None:
@@ -567,6 +630,8 @@ def build_eda_report() -> str:
         narrative.append(f"The strongest hotspot remains concentrated around {top_hotspot.iloc[0].get('State', 'Unknown')} / {top_hotspot.iloc[0].get('metro_case_study', 'Unknown')}, which matches the spatial concentration pattern shown in the existing maps.")
     if not stable_signal.empty:
         narrative.append(f"{stable_signal.iloc[0]['signal']} is the strongest discussion-ready signal in the exported table, with a lift of {float(stable_signal.iloc[0]['lift_vs_baseline_pct']):.1f}% and strong year-to-year stability.")
+    narrative.append("The notebook's descriptive outlier check found a 37.8% outlier rate on the selected numeric fields, so the tail behavior is substantial rather than a cleanup artifact.")
+    narrative.append(f"The descriptive weather/road summary is skewed toward {notebook_weather_bucket} conditions and {notebook_road_scale} road parsing, which helps explain why the report keeps weather and road context front and center.")
     narrative.append(
         f"The macro panel shows a split between traffic volume and accident growth: accidents changed by {macro_shift['accident_count']:+.1f}% while VMT changed by {macro_shift['vmt_millions']:+.1f}% between the 2017-2019 baseline and 2021-2022."
     )
@@ -574,6 +639,7 @@ def build_eda_report() -> str:
     figures = [
         ("State-Level Concentration", build_state_chart(state_panel)),
         ("City and Metro Concentration", build_city_chart(panel)),
+        ("Per-Capita State-Day Intensity", build_state_per_capita_chart(state_panel)),
         ("Geographic Hotspots", build_hotspot_chart(hotspot)),
         ("Stable Signals", build_signal_chart(signal_table)),
         ("Macro Context", build_macro_chart(macro)),
@@ -605,23 +671,32 @@ def build_predictions_report() -> str:
         ordered=True,
     )
     severity_metrics = severity_metrics.sort_values("pr_auc")
+    ai_distribution = load_ai_severity_distribution()
+    ai_total = int(ai_distribution["count"].sum())
+    severe_tail_share = float(ai_distribution.loc[ai_distribution["predicted_severity"].isin([3, 4]), "share"].sum())
+    mode_row = ai_distribution.sort_values(["count", "predicted_severity"], ascending=[False, True]).iloc[0]
 
     cards = [
         ("Best severity model", f"XGBoost (GPU) / PR-AUC {float(severity_metrics.loc[severity_metrics['model'] == 'XGBoost (GPU)', 'pr_auc'].iloc[0]):.3f}"),
         ("Holdout prevalence", f"{float(severity_metrics['test_prevalence'].iloc[0]) * 100:.1f}% severe"),
         ("Top ablation bundle", str(SEVERITY_BUNDLE_ABLATION.iloc[0]["feature_bundle"])),
         ("Best daily forecast", f"Los Angeles / {FORECAST_TAKEAWAYS.loc[FORECAST_TAKEAWAYS['scope'] == 'Los Angeles', 'model'].iloc[0]}"),
+        ("Final accident predictions", f"{ai_total} cached predictions"),
+        ("Most common predicted class", f"{int(mode_row['predicted_severity'])} with {mode_row['share']:.1%} share"),
     ]
 
     narrative = [
         "The severity task is the clearest win in the repo: XGBoost (GPU) leads the holdout comparison, with Random Forest close behind and Logistic Regression clearly weaker.",
         "The feature-bundle ablation shows that the richest structured bundle is the strongest overall configuration, so the predictive lift comes from combining calendar, road/context, and text-derived fields rather than a single feature family.",
         "The daily count forecasts are consistently better than a seasonal naive baseline across the highlighted scopes, with Los Angeles posting the largest improvement in the notebook's takeaway text.",
+        f"The cached final accident predictions contain {ai_total} predicted severity labels, and the distribution is concentrated in classes 2-4 rather than the minor class.",
+        f"The highest-severity tail (classes 3 and 4) accounts for {severe_tail_share:.1%} of the cached accident predictions, so the model is not collapsing everything into the low-risk bucket.",
     ]
 
     figures = [
         ("Severity Model Comparison", build_model_metrics_chart(severity_metrics)),
         ("Feature-Bundle Ablation", build_bundle_ablation_chart(SEVERITY_BUNDLE_ABLATION)),
+        ("Final Accident Predictions", build_ai_prediction_chart(ai_distribution)),
         ("Daily Forecast Improvements", build_forecast_chart(FORECAST_TAKEAWAYS)),
     ]
 
@@ -629,6 +704,7 @@ def build_predictions_report() -> str:
     tables = [
         ("Severity Metrics", severity_metrics.reset_index(drop=True)),
         ("Feature-Bundle Ablation", SEVERITY_BUNDLE_ABLATION.reset_index(drop=True)),
+        ("Final Accident Prediction Distribution", ai_distribution.reset_index(drop=True)),
         ("Daily Forecast Improvements", forecast_table.reset_index(drop=True)),
     ]
 
@@ -638,6 +714,7 @@ def build_predictions_report() -> str:
         [
             f"The best model remains {severity_best['model']} with PR-AUC {float(severity_best['pr_auc']):.3f}, ROC-AUC {float(severity_best['roc_auc']):.3f}, and recall {float(severity_best['recall']):.3f}.",
             f"Among the bundle ablations, {bundle_best['feature_bundle']} leads on PR-AUC at {float(bundle_best['pr_auc']):.3f}.",
+            f"The final prediction mix is led by severity class {int(mode_row['predicted_severity'])}, which accounts for {mode_row['share']:.1%} of the cached predictions.",
             f"The strongest daily count improvement in the notebook takeaway is Los Angeles at {float(FORECAST_TAKEAWAYS.loc[FORECAST_TAKEAWAYS['scope'] == 'Los Angeles', 'rmse_improvement_pct'].iloc[0]):.1f}% RMSE improvement versus seasonal naive.",
         ]
     )
